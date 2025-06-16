@@ -150,6 +150,7 @@ class Client:
         del Client._clients[self._client_key]
 
     @staticmethod
+    @bindings.OnCompletion  # type: ignore[misc]
     def _c_on_completion(completion_ctx: int, packet: Any, timestamp: int, bytes_ptr: Any, len_: int) -> None:
         """
         Invoked in a separate thread
@@ -265,6 +266,7 @@ class ClientAsync(Client, bindings.AsyncStateMachineMixin):
         return inflight_packet.response
 
 
+@bindings.LogHandler  # type: ignore[misc]
 def log_handler(level_zig: bindings.LogLevel, message_ptr: Any, message_len: int) -> None:
     level_python = {
         bindings.LogLevel.ERR: logging.ERROR,
