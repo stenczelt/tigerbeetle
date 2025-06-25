@@ -152,7 +152,7 @@ pub fn ReplicaType(
         const ForestTableIterator = ForestTableIteratorType(Forest);
         const Tracer = Storage.Tracer;
 
-        const ReplicateOptions = struct {
+        pub const ReplicateOptions = struct {
             closed_loop: bool = false,
             star: bool = false,
         };
@@ -3411,12 +3411,8 @@ pub fn ReplicaType(
                     }
                 }
 
-                if (self.primary_pipeline_pending()) |prepare_pending| {
-                    if (prepare_pending == prepare) {
-                        self.prepare_timeout.backoff(&self.prng);
-                    } else {
-                        self.prepare_timeout.reset();
-                    }
+                if (self.primary_pipeline_pending()) |_| {
+                    self.prepare_timeout.reset();
                 } else {
                     self.prepare_timeout.stop();
 
