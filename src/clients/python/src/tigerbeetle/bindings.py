@@ -19,7 +19,8 @@ from .lib import c_uint128, tbclient, validate_uint
 
 # Use slots=True if the version of Python is new enough (3.10+) to support it.
 if sys.version_info >= (3, 10):
-    dataclass = dataclass(slots=True) # type: ignore[assignment]
+    # mypy: ignore assignment (3.10+) and unused-ignore (pre 3.10)
+    dataclass = dataclass(slots=True) # type: ignore[assignment, unused-ignore]
 
 
 class Operation(enum.IntEnum):
