@@ -317,7 +317,7 @@ fn emit_struct_dataclass(
                 // flags
                 buffer.print("{s}.NONE\n", .{python_type});
             } else {
-                if (field_type_info == .Enum) {
+                if (field_type_info == .@"enum") {
                     // enums: the only ones exposed by the client call `.0` as `.OK`
                     buffer.print("{s}.OK\n", .{python_type});
                 } else {
