@@ -416,7 +416,7 @@ pub fn main() !void {
         \\
         \\# Use slots=True if the version of Python is new enough (3.10+) to support it.
         \\if sys.version_info >= (3, 10):
-        \\    dataclass = dataclass(slots=True)
+        \\    dataclass = dataclass(slots=True) # type: ignore[assignment]
         \\
         \\
         \\
