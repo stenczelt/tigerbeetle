@@ -9,7 +9,7 @@ on:
   merge_group:
   pull_request:
   push:
-#    branches: ["main"]
+    branches: ["main"]
 
 env:
   GH_TOKEN: ${{ github.token }}
@@ -51,7 +51,6 @@ jobs:
 
   clients:
     strategy:
-      fail-fast: false # temporarily
       matrix:
         include:
           - { os: 'ubuntu-latest',  language: 'dotnet',  language_version: '8.0.x' }
