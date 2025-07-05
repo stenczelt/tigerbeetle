@@ -51,6 +51,7 @@ jobs:
 
   clients:
     strategy:
+      fail-fast: false # temporarily
       matrix:
         include:
           - { os: 'ubuntu-latest',  language: 'dotnet',  language_version: '8.0.x' }
