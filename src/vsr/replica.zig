@@ -19,6 +19,7 @@ const RingBufferType = stdx.RingBufferType;
 const ForestTableIteratorType =
     @import("../lsm/forest_table_iterator.zig").ForestTableIteratorType;
 const TestStorage = @import("../testing/storage.zig").Storage;
+const Duration = stdx.Duration;
 const marks = @import("../testing/marks.zig");
 
 const vsr = @import("../vsr.zig");
@@ -417,7 +418,7 @@ pub fn ReplicaType(
 
         /// Measures the time taken to commit a prepare, across the following stages:
         /// prefetch → reply_setup → execute → compact → checkpoint_data → checkpoint_superblock
-        commit_completion_timer: std.time.Timer,
+        commit_started: ?stdx.Instant = null,
 
         /// Whether we are reading a prepare from storage to construct the pipeline.
         pipeline_repairing: bool = false,
@@ -1246,7 +1247,6 @@ pub fn ReplicaType(
             self.* = .{
                 .static_allocator = self.static_allocator,
                 .cluster = options.cluster,
-                .commit_completion_timer = try std.time.Timer.start(),
                 .replica_count = replica_count,
                 .standby_count = standby_count,
                 .node_count = node_count,
@@ -1299,87 +1299,89 @@ pub fn ReplicaType(
                 .ping_timeout = Timeout{
                     .name = "ping_timeout",
                     .id = replica_index,
-                    .after = 100,
+                    .after = 1_000 / constants.tick_ms,
                 },
                 .prepare_timeout = Timeout{
                     .name = "prepare_timeout",
                     .id = replica_index,
-                    .after = options.timeout_prepare_ticks orelse 25,
+                    .after = options.timeout_prepare_ticks orelse (250 / constants.tick_ms),
                 },
                 .primary_abdicate_timeout = Timeout{
                     .name = "primary_abdicate_timeout",
                     .id = replica_index,
-                    .after = 1000,
+                    .after = 10_000 / constants.tick_ms,
                 },
                 .commit_message_timeout = Timeout{
                     .name = "commit_message_timeout",
                     .id = replica_index,
-                    .after = 50,
+                    .after = 500 / constants.tick_ms,
                 },
                 .normal_heartbeat_timeout = Timeout{
                     .name = "normal_heartbeat_timeout",
                     .id = replica_index,
-                    .after = 500,
+                    .after = 5_000 / constants.tick_ms,
                 },
                 .start_view_change_window_timeout = Timeout{
                     .name = "start_view_change_window_timeout",
                     .id = replica_index,
-                    .after = 500,
+                    .after = 5_000 / constants.tick_ms,
                 },
                 .start_view_change_message_timeout = Timeout{
                     .name = "start_view_change_message_timeout",
                     .id = replica_index,
-                    .after = 50,
+                    .after = 500 / constants.tick_ms,
                 },
                 .view_change_status_timeout = Timeout{
                     .name = "view_change_status_timeout",
                     .id = replica_index,
-                    .after = 500,
+                    .after = 5_000 / constants.tick_ms,
                 },
                 .do_view_change_message_timeout = Timeout{
                     .name = "do_view_change_message_timeout",
                     .id = replica_index,
-                    .after = 50,
+                    .after = 500 / constants.tick_ms,
                 },
                 .request_start_view_message_timeout = Timeout{
                     .name = "request_start_view_message_timeout",
                     .id = replica_index,
-                    .after = 100,
+                    .after = 1_000 / constants.tick_ms,
                 },
                 .repair_timeout = Timeout{
                     .name = "repair_timeout",
                     .id = replica_index,
-                    .after = 10,
+                    .after = 100 / constants.tick_ms,
                 },
                 .repair_sync_timeout = Timeout{
                     .name = "repair_sync_timeout",
                     .id = replica_index,
-                    .after = 500,
+                    .after = 5_000 / constants.tick_ms,
                 },
                 .grid_repair_message_timeout = Timeout{
                     .name = "grid_repair_message_timeout",
                     .id = replica_index,
-                    .after = options.timeout_grid_repair_message_ticks orelse 50,
+                    .after = options.timeout_grid_repair_message_ticks orelse
+                        (500 / constants.tick_ms),
                 },
                 .grid_scrub_timeout = Timeout{
                     .name = "grid_scrub_timeout",
                     .id = replica_index,
-                    .after = 50, // (`after` will be adjusted at runtime to tune the scrubber pace.)
+                    // (`after` will be adjusted at runtime to tune the scrubber pace.)
+                    .after = 500 / constants.tick_ms,
                 },
                 .pulse_timeout = Timeout{
                     .name = "pulse_timeout",
                     .id = replica_index,
-                    .after = 10,
+                    .after = 100 / constants.tick_ms,
                 },
                 .upgrade_timeout = Timeout{
                     .name = "upgrade_timeout",
                     .id = replica_index,
-                    .after = 500,
+                    .after = 5_000 / constants.tick_ms,
                 },
                 .trace_emit_timeout = Timeout{
                     .name = "trace_emit_timeout",
                     .id = replica_index,
-                    .after = 1000,
+                    .after = 10_000 / constants.tick_ms,
                 },
                 .prng = stdx.PRNG.from_seed(replica_index),
 
@@ -1553,6 +1555,9 @@ pub fn ReplicaType(
                     assert(request_header.client != 0 or constants.aof_recovery);
                 }
 
+                self.trace.count(.{ .replica_messages_in = .{
+                    .command = message.header.command,
+                } }, 1);
                 self.on_message(message);
             }
 
@@ -1728,7 +1733,7 @@ pub fn ReplicaType(
                 const upgrade_targets = &self.upgrade_targets[message.header.replica];
                 if (upgrade_targets.* == null or
                     (upgrade_targets.*.?.checkpoint <= message.header.checkpoint_op and
-                    upgrade_targets.*.?.view <= message.header.view))
+                        upgrade_targets.*.?.view <= message.header.view))
                 {
                     upgrade_targets.* = .{
                         .checkpoint = message.header.checkpoint_op,
@@ -1911,7 +1916,7 @@ pub fn ReplicaType(
 
             if (message.header.view < self.view or
                 (self.status == .normal and
-                message.header.view == self.view and message.header.op <= self.op))
+                    message.header.view == self.view and message.header.op <= self.op))
             {
                 log.debug("{}: on_prepare: ignoring (repair)", .{self.replica});
                 self.on_repair(message);
@@ -1995,7 +2000,7 @@ pub fn ReplicaType(
 
             if (message.header.checkpoint_id != self.superblock.working.checkpoint_id() and
                 message.header.checkpoint_id !=
-                self.superblock.working.vsr_state.checkpoint.parent_checkpoint_id)
+                    self.superblock.working.vsr_state.checkpoint.parent_checkpoint_id)
             {
                 // Panic on encountering a prepare which does not match an expected checkpoint id.
                 //
@@ -2476,7 +2481,7 @@ pub fn ReplicaType(
             //   to step up as primary before it attempts to step up as primary.
             if (vsr.Checkpoint.durable(self.op_checkpoint_next(), commit_max) or
                 (op_checkpoint_max > self.op_checkpoint() and
-                (self.view - self.log_view < self.replica_count)))
+                    (self.view - self.log_view < self.replica_count)))
             {
                 // This serves a few purposes:
                 // 1. Availability: We pick a primary to minimize the number of WAL repairs, to
@@ -3886,7 +3891,7 @@ pub fn ReplicaType(
                 // This is *not* necessary for correctness.
                 if (m.header.checkpoint_op < message.header.checkpoint_op or
                     (m.header.checkpoint_op == message.header.checkpoint_op and
-                    m.header.commit_min < message.header.commit_min))
+                        m.header.commit_min < message.header.commit_min))
                 {
                     log.debug("{}: on_{s}: replacing " ++
                         "(newer message replica={} checkpoint={}..{} commit={}..{})", .{
@@ -4213,7 +4218,7 @@ pub fn ReplicaType(
                 if (self.commit_stage == .check_prepare) {
                     self.commit_stage = .prefetch;
 
-                    self.commit_completion_timer.reset();
+                    self.commit_started = self.clock.time.monotonic_instant();
                     self.trace.start(.{ .replica_commit = .{
                         .stage = self.commit_stage,
                         .op = self.commit_prepare.?.header.op,
@@ -4309,6 +4314,7 @@ pub fn ReplicaType(
             assert(self.commit_stage == .check_prepare);
             assert(self.commit_prepare == null);
             assert(self.commit_dispatch_entered);
+            assert(self.commit_started == null);
             self.commit_stage = .idle;
             self.commit_dispatch_entered = false;
 
@@ -4346,6 +4352,7 @@ pub fn ReplicaType(
             self.commit_prepare = null;
             self.commit_stage = .idle;
             self.commit_dispatch_entered = false;
+            self.commit_started = null;
         }
 
         fn commit_start(self: *Replica) enum { ready, pending } {
@@ -4412,7 +4419,7 @@ pub fn ReplicaType(
                 // additionally verify ourselves that the hash-chain is not broken
                 const valid_hash_chain_or_same_view = self.valid_hash_chain(@src()) or
                     (self.status == .normal and
-                    header.view == self.journal.header_with_op(self.op).?.view);
+                        header.view == self.journal.header_with_op(self.op).?.view);
 
                 if (!valid_hash_chain_or_same_view) {
                     assert(!self.solo());
@@ -4704,6 +4711,8 @@ pub fn ReplicaType(
                 self.send_commit();
             }
             if (self.aof) |aof| {
+                self.trace.start(.replica_aof_checkpoint);
+
                 aof.checkpoint(self, commit_checkpoint_data_aof_callback);
             } else {
                 self.commit_checkpoint_data_callback_join(.aof);
@@ -4722,6 +4731,7 @@ pub fn ReplicaType(
         fn commit_checkpoint_data_aof_callback(replica: *anyopaque) void {
             const self: *Replica = @alignCast(@ptrCast(replica));
             assert(self.commit_stage == .checkpoint_data);
+            self.trace.stop(.replica_aof_checkpoint);
             self.commit_checkpoint_data_callback_join(.aof);
         }
 
@@ -4936,8 +4946,8 @@ pub fn ReplicaType(
 
             assert(self.grid.free_set.count_released() >=
                 self.grid.free_set_checkpoint_blocks_acquired.block_count() +
-                self.grid.free_set_checkpoint_blocks_released.block_count() +
-                self.client_sessions_checkpoint.block_count());
+                    self.grid.free_set_checkpoint_blocks_released.block_count() +
+                    self.client_sessions_checkpoint.block_count());
 
             // Send prepare_oks that may have been withheld by virtue of `op_prepare_ok_max`.
             self.send_prepare_oks_after_checkpoint();
@@ -4951,21 +4961,16 @@ pub fn ReplicaType(
             assert(self.commit_prepare.?.header.op == self.commit_min);
             assert(self.commit_prepare.?.header.op < self.op_checkpoint_next_trigger());
 
-            const commit_completion_time_local_us = @divFloor(
-                self.commit_completion_timer.read(),
-                std.time.ns_per_us,
-            );
-            const commit_completion_time_local_ms = @divFloor(
-                commit_completion_time_local_us,
-                std.time.us_per_ms,
-            );
-            if (commit_completion_time_local_ms > constants.client_request_completion_warn_ms) {
+            const commit_completion_time_local = self.clock.time.monotonic_instant()
+                .duration_since(self.commit_started.?);
+            self.commit_started = null;
+            if (commit_completion_time_local.ms() > constants.client_request_completion_warn_ms) {
                 log.warn("{}: commit_dispatch: slow request, request={} size={} {s} time={}ms", .{
                     self.replica,
                     self.commit_prepare.?.header.request,
                     self.commit_prepare.?.header.size,
                     self.commit_prepare.?.header.operation.tag_name(StateMachine),
-                    commit_completion_time_local_ms,
+                    commit_completion_time_local.ms(),
                 });
             }
 
@@ -4974,15 +4979,9 @@ pub fn ReplicaType(
             //
             // NB: When a request comes in, it may be blocked by CPU work (likely, compaction) and
             // only get timestamped _after_ that work finishes. This adds some measurement error.
-            const commit_completion_time_request_us = blk: {
-                if (self.clock.realtime_synchronized()) |realtime| {
-                    maybe(realtime < self.commit_prepare.?.header.timestamp);
-
-                    break :blk @as(u64, @intCast(realtime)) -|
-                        self.commit_prepare.?.header.timestamp;
-                } else {
-                    break :blk 0;
-                }
+            const commit_completion_time_request: Duration = .{
+                .ns = @as(u64, @intCast(self.clock.realtime())) -|
+                    self.commit_prepare.?.header.timestamp,
             };
 
             // Only time operations when:
@@ -4997,11 +4996,11 @@ pub fn ReplicaType(
                 )) |operation| {
                     self.trace.timing(
                         .{ .replica_request_local = .{ .operation = operation } },
-                        commit_completion_time_local_us,
+                        commit_completion_time_local,
                     );
                     self.trace.timing(
                         .{ .replica_request = .{ .operation = operation } },
-                        commit_completion_time_request_us,
+                        commit_completion_time_request,
                     );
                 }
             }
@@ -5199,15 +5198,9 @@ pub fn ReplicaType(
                     });
                     self.send_reply_message_to_client(reply);
 
-                    const commit_execute_time_request_us = blk: {
-                        if (self.clock.realtime_synchronized()) |realtime| {
-                            maybe(realtime < self.commit_prepare.?.header.timestamp);
-
-                            break :blk @as(u64, @intCast(realtime)) -|
-                                self.commit_prepare.?.header.timestamp;
-                        } else {
-                            break :blk 0;
-                        }
+                    const commit_execute_time_request: Duration = .{
+                        .ns = @as(u64, @intCast(self.clock.realtime())) -|
+                            self.commit_prepare.?.header.timestamp,
                     };
 
                     if (StateMachine.Operation == @import("../tigerbeetle.zig").Operation and
@@ -5218,7 +5211,7 @@ pub fn ReplicaType(
                         )) |operation| {
                             self.trace.timing(
                                 .{ .replica_request_execute = .{ .operation = operation } },
-                                commit_execute_time_request_us,
+                                commit_execute_time_request,
                             );
                         }
                     }
@@ -6807,6 +6800,20 @@ pub fn ReplicaType(
                 request.message.header.checksum,
                 request.message.header.client,
             });
+            if (request.message.header.previous_request_latency != 0) {
+                if (StateMachine.Operation == @import("../tigerbeetle.zig").Operation and
+                    self.status == .normal)
+                {
+                    if (StateMachine.operation_from_vsr(
+                        request.message.header.operation,
+                    )) |operation| {
+                        self.trace.timing(
+                            .{ .client_request_round_trip = .{ .operation = operation } },
+                            .{ .ns = request.message.header.previous_request_latency },
+                        );
+                    }
+                }
+            }
 
             // Guard against the wall clock going backwards by taking the max with timestamps
             // issued:
@@ -8345,9 +8352,10 @@ pub fn ReplicaType(
                         self.journal.prepare_checksums[slot.index] == header.checksum) or
                         self.journal.writing(header) == .exact or
                         self.pipeline_prepare_by_op_and_checksum(
-                        header.op,
-                        header.checksum,
-                    ) != null) {
+                            header.op,
+                            header.checksum,
+                        ) != null)
+                    {
                         if (journal_header != null) {
                             assert(journal_header.?.checksum == header.checksum);
                         }
@@ -8532,8 +8540,8 @@ pub fn ReplicaType(
 
         /// `message` is a `*MessageType(command)`.
         fn send_message_to_other_replicas(self: *Replica, message: anytype) void {
-            assert(@typeInfo(@TypeOf(message)) == .Pointer);
-            assert(!@typeInfo(@TypeOf(message)).Pointer.is_const);
+            assert(@typeInfo(@TypeOf(message)) == .pointer);
+            assert(!@typeInfo(@TypeOf(message)).pointer.is_const);
 
             self.send_message_to_other_replicas_base(message.base());
         }
@@ -8558,8 +8566,8 @@ pub fn ReplicaType(
 
         /// `message` is a `*MessageType(command)`.
         fn send_message_to_replica(self: *Replica, replica: u8, message: anytype) void {
-            assert(@typeInfo(@TypeOf(message)) == .Pointer);
-            assert(!@typeInfo(@TypeOf(message)).Pointer.is_const);
+            assert(@typeInfo(@TypeOf(message)) == .pointer);
+            assert(!@typeInfo(@TypeOf(message)).pointer.is_const);
 
             self.send_message_to_replica_base(replica, message.base());
         }
@@ -8576,6 +8584,9 @@ pub fn ReplicaType(
                     });
                 },
             }
+            self.trace.count(.{ .replica_messages_out = .{
+                .command = message.header.command,
+            } }, 1);
 
             if (message.header.invalid()) |reason| {
                 log.warn("{}: send_message_to_replica: invalid ({s})", .{ self.replica, reason });
@@ -9899,7 +9910,7 @@ pub fn ReplicaType(
             self.client_sessions.reset();
 
             if (self.aof) |aof| aof.sync();
-            // Faulty bits will be set in sync_content().
+            // Faulty bits will be set in client_sessions_open_callback().
             while (self.client_replies.faulty.first_set()) |slot| {
                 self.client_replies.faulty.unset(slot);
             }
@@ -10673,6 +10684,7 @@ pub fn ReplicaType(
                 .parent = 0,
                 .client = 0,
                 .session = 0,
+                .previous_request_latency = 0,
             };
 
             request.header.set_checksum_body(request.body_used());
@@ -10719,7 +10731,7 @@ pub fn ReplicaType(
 
             assert((self.grid.free_set.count_acquired() - self.grid.free_set.count_released()) ==
                 (tables_index_block_count + tables_value_block_count +
-                self.state_machine.forest.manifest_log.log_block_checksums.count));
+                    self.state_machine.forest.manifest_log.log_block_checksums.count));
         }
     };
 }

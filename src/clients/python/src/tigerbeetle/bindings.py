@@ -313,7 +313,7 @@ CPacket._fields_ = [ # noqa: SLF001
     ("user_tag", ctypes.c_uint16),
     ("operation", ctypes.c_uint8),
     ("status", ctypes.c_uint8),
-    ("opaque", ctypes.c_uint8 * 32),
+    ("opaque", ctypes.c_uint8 * 64),
 ]
 
 

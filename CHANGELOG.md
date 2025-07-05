@@ -3,6 +3,100 @@
 Subscribe to the [tracking issue #2231](https://github.com/tigerbeetle/tigerbeetle/issues/2231)
 to receive notifications about breaking changes!
 
+## TigerBeetle 0.16.49
+
+Released: 2025-07-04
+
+### Safety And Performance
+
+- [#3064](https://github.com/tigerbeetle/tigerbeetle/pull/3064)
+
+  Fix a division by zero when logging CDC metrics, and increase resolution to nanoseconds.
+
+### Internals
+
+- [#2705](https://github.com/tigerbeetle/tigerbeetle/pull/2705)
+
+  Upgrade to Zig 0.14.1.
+
+- [#3068](https://github.com/tigerbeetle/tigerbeetle/pull/3068)
+
+  Fix a typo that caused probabilities to be parsed as hexadecimal.
+
+### TigerTracks 🎧
+
+- [Dance of Maria](https://open.spotify.com/track/0f7iz1qAWSz61BdHTXbzvC?si=d1znWf4XR1Gev1RZsgtPpQ)
+
+## TigerBeetle 0.16.48
+
+Released: 2025-07-01
+
+### Internals
+
+- [#3062](https://github.com/tigerbeetle/tigerbeetle/pull/3062)
+
+  Updates the publishing process for the Java client to conform to the Maven Central Repository
+  due to the [OSSRH service end-of-life](https://central.sonatype.org/news/20250326_ossrh_sunset/).
+
+- [#3048](https://github.com/tigerbeetle/tigerbeetle/pull/3048),
+  [#3047](https://github.com/tigerbeetle/tigerbeetle/pull/3047)
+
+  Fixes and improvements for tracing and metrics.
+
+### TigerTracks 🎧
+
+- [All Shook Up](https://www.youtube.com/watch?v=23zLefwiii4&list=RD23zLefwiii4)
+
+## TigerBeetle 0.16.47
+
+Released: 2025-06-27
+
+Note: This release is missing some client libraries in their respective package managers.
+
+### Safety And Performance
+
+- [#3032](https://github.com/tigerbeetle/tigerbeetle/pull/3032)
+
+  Fix ABI assertions in Rust client.
+
+- [#3039](https://github.com/tigerbeetle/tigerbeetle/pull/3039)
+
+  Swarm test different replication configurations in VOPR.
+
+- [#3053](https://github.com/tigerbeetle/tigerbeetle/pull/3053)
+
+  Supports CDC processing for transfers created by versions earlier than `0.16.29`.
+  Fixes a liveness bug that would crash the replica if a CDC query encountered objects
+  created with a schema before [#2507](https://github.com/tigerbeetle/tigerbeetle/pull/2507).
+
+### Features
+
+- [#3038](https://github.com/tigerbeetle/tigerbeetle/pull/3038)
+
+  Add `client_request_round_trip` metric to track end-to-end client request latency.
+
+- [#3043](https://github.com/tigerbeetle/tigerbeetle/pull/3043)
+
+  Support `--clients` alongside `--transfer-batch-delay-us` in `tigerbeetle benchmark`.
+
+- [#3056](https://github.com/tigerbeetle/tigerbeetle/pull/3056)
+
+  The command `tigerbeetle inspect constants` prints VSR queue sizes.
+
+### Internals
+
+- [#3045](https://github.com/tigerbeetle/tigerbeetle/pull/3045)
+
+  Define timeouts in terms of `tick_ms`.
+
+- [#3042](https://github.com/tigerbeetle/tigerbeetle/pull/3042)
+
+  Disable "hint" argument for mmap call, which was observed to cause stack overflow.
+
+### TigerTracks 🎧
+
+- [Wishmaster](https://www.youtube.com/watch?v=XCGQiGEYl4Y)
+
 ## TigerBeetle 0.16.46
 
 Released: 2025-06-19
